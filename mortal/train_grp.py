@@ -72,11 +72,10 @@ def collate(batch):
         rank_by_players.append(rank_by_player)
 
     lengths = torch.tensor(lengths)
-    rank_by_players = torch.tensor(rank_by_players, dtype=torch.int64, pin_memory=True)
+    rank_by_players = torch.tensor(rank_by_players, dtype=torch.int64)
 
     padded = pad_sequence(inputs, batch_first=True)
     packed_inputs = pack_padded_sequence(padded, lengths, batch_first=True, enforce_sorted=False)
-    packed_inputs.pin_memory()
 
     return packed_inputs, rank_by_players
 
