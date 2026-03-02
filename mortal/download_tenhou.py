@@ -593,7 +593,11 @@ def run_from_db(args):
     for log_id, content in tqdm(rows, desc='转换'):
         try:
             if isinstance(content, bytes):
-                content = content.decode('utf-8', errors='replace')
+                # 尝试 gzip 解压
+                try:
+                    content = gzip.decompress(content).decode('utf-8', errors='replace')
+                except (gzip.BadGzipFile, OSError):
+                    content = content.decode('utf-8', errors='replace')
 
             if '<mjloggm' not in content:
                 errors += 1
