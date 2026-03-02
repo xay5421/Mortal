@@ -375,7 +375,7 @@ def download_year_index(year):
 
     all_log_ids = []
     with zipfile.ZipFile(zip_data) as zf:
-        scc_files = [f for f in zf.namelist() if f.startswith('scc')]
+        scc_files = [f for f in zf.namelist() if 'scc' in f]
         print(f"找到 {len(scc_files)} 个鳳凰卓索引文件")
         for fname in tqdm(scc_files, desc='解析索引'):
             with zf.open(fname) as f:
