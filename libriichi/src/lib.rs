@@ -138,8 +138,11 @@ fn libriichi(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     algo::shanten::ensure_init();
     algo::agari::ensure_init();
 
-    let name = m.name()?;
-    let name = name.extract()?;
+    // Use the package name as prefix for submodule registration.
+    // When [lib] name = "libriichi", m.name() returns "libriichi",
+    // but we need the prefix to also be "libriichi" so submodules
+    // register as "libriichi.consts" etc., not "libriichi.libriichi.consts".
+    let name: &str = "libriichi";
     if cfg!(debug_assertions) {
         eprintln!("{name}: this is a debug build.");
         m.add("__profile__", "debug")?;
