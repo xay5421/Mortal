@@ -557,15 +557,13 @@ def run_from_db(args):
         columns = [(row[1], row[2]) for row in cursor.fetchall()]
         col_names = [c[0] for c in columns]
 
-        if 'content' in col_names:
-            content_table = table
-            content_col = 'content'
-            id_col = 'log_id' if 'log_id' in col_names else 'id'
-            break
-        elif 'xml' in col_names:
-            content_table = table
-            content_col = 'xml'
-            id_col = 'log_id' if 'log_id' in col_names else 'id'
+        for candidate in ['content', 'xml', 'log']:
+            if candidate in col_names:
+                content_table = table
+                content_col = candidate
+                id_col = 'log_id' if 'log_id' in col_names else 'id'
+                break
+        if content_table:
             break
 
     if not content_table:
