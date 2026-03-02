@@ -116,7 +116,10 @@ def train():
                 scheduler.load_state_dict(state['scheduler'])
             except (ValueError, KeyError):
                 logging.warning('optimizer/scheduler state incompatible, reinitializing')
-        scaler.load_state_dict(state['scaler'])
+        try:
+            scaler.load_state_dict(state['scaler'])
+        except (ValueError, KeyError, RuntimeError):
+            logging.warning('scaler state incompatible, reinitializing')
         best_perf = state['best_perf']
         steps = state['steps']
 
