@@ -100,7 +100,8 @@ class FileDatasetsIter(IterableDataset):
                 grp_feature = grp.take_feature()
                 rank_by_player = grp.take_rank_by_player()
                 kyoku_rewards = self.reward_calc.calc_delta_pt(player_id, grp_feature, rank_by_player)
-                assert len(kyoku_rewards) >= at_kyoku[-1] + 1 # usually they are equal, unless there is no action in the last kyoku
+                if len(kyoku_rewards) < at_kyoku[-1] + 1:
+                    continue  # skip games with mismatched kyoku count
 
                 final_scores = grp.take_final_scores()
                 scores_seq = np.concatenate((grp_feature[:, 3:] * 1e4, [final_scores]))
