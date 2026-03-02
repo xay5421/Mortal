@@ -111,8 +111,11 @@ def train():
         dqn.load_state_dict(state['current_dqn'])
         aux_net.load_state_dict(state['aux_net'])
         if not online or state['config']['control']['online']:
-            optimizer.load_state_dict(state['optimizer'])
-            scheduler.load_state_dict(state['scheduler'])
+            try:
+                optimizer.load_state_dict(state['optimizer'])
+                scheduler.load_state_dict(state['scheduler'])
+            except (ValueError, KeyError):
+                logging.warning('optimizer/scheduler state incompatible, reinitializing')
         scaler.load_state_dict(state['scaler'])
         best_perf = state['best_perf']
         steps = state['steps']
