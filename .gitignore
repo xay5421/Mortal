@@ -12,3 +12,11 @@ __pycache__
 *.ipynb
 
 /_draft
+
+# Training artifacts
+mortal/*.pth
+mortal/runs/
+mortal/test_play_logs/
+mortal/1v3_logs/
+mortal/file_index.pth
+mortal/grp_file_index.pth

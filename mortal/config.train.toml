@@ -1,0 +1,146 @@
+# Fine-tune config for RTX 5070 (8GB VRAM)
+# 基于 model_v4_20240308_best_min 继续训练
+# 使用梯度累积模拟大 batch: effective_batch = 64 * 8 = 512
+
+[control]
+version = 4
+online = false
+
+state_file = 'mortal.pth'
+best_state_file = 'best.pth'
+tensorboard_dir = 'runs'
+
+device = 'cuda:0'
+enable_cudnn_benchmark = true
+enable_amp = true           # 必须开，8GB 显存
+enable_compile = true       # 5070 支持，白捡加速
+
+batch_size = 64             # 8GB 显存安全值
+opt_step_every = 8          # 梯度累积 8 步 → 等效 batch=512
+
+save_every = 400
+test_every = 20000
+submit_every = 400
+
+[test_play]
+games = 1000                # 评估用 1000 局（快一些）
+log_dir = 'test_play_logs'
+
+[dataset]
+globs = ['data/**/*.json.gz']
+file_index = 'file_index.pth'
+file_batch_size = 15
+reserve_ratio = 0.0
+num_workers = 2             # Windows 上如果报错改成 0
+player_names_files = []
+num_epochs = 1
+enable_augmentation = false
+augmented_first = false
+
+[env]
+gamma = 1
+pts = [6.0, 4.0, 2.0, 0.0]
+
+[resnet]
+conv_channels = 256
+num_blocks = 54
+
+[cql]
+min_q_weight = 5
+
+[aux]
+next_rank_weight = 0.2
+
+[freeze_bn]
+mortal = false
+
+[optim]
+eps = 1e-8
+betas = [0.9, 0.999]
+weight_decay = 0.1
+max_grad_norm = 1.0         # 梯度裁剪，fine-tune 时建议开
+
+[optim.scheduler]
+peak = 3e-5                 # fine-tune 用小学习率
+final = 1e-5
+warm_up_steps = 200
+max_steps = 100000
+
+[baseline.train]
+device = 'cuda:0'
+enable_compile = false
+state_file = 'baseline.pth'
+
+[baseline.test]
+device = 'cuda:0'
+enable_compile = false
+state_file = 'baseline.pth'
+
+[online]
+history_window = 50
+enable_compile = false
+
+[online.remote]
+host = '127.0.0.1'
+port = 5000
+
+[online.server]
+buffer_dir = 'buffer'
+drain_dir = 'drain'
+sample_reuse_rate = 0
+sample_reuse_threshold = 0
+capacity = 1600
+force_sequential = false
+
+[1v3]
+seed_key = -1
+games_per_iter = 500
+iters = 100
+log_dir = '1v3_logs'
+
+[1v3.challenger]
+device = 'cuda:0'
+name = 'mortal'
+state_file = 'mortal.pth'
+stochastic_latent = false
+enable_compile = false
+enable_amp = true
+enable_rule_based_agari_guard = true
+
+[1v3.champion]
+device = 'cuda:0'
+name = 'baseline'
+state_file = 'baseline.pth'
+stochastic_latent = false
+enable_compile = false
+enable_amp = true
+enable_rule_based_agari_guard = true
+
+[1v3.akochan]
+enabled = false
+dir = ''
+tactics = ''
+
+[grp]
+state_file = 'grp.pth'
+
+[grp.network]
+hidden_size = 64
+num_layers = 2
+
+[grp.control]
+device = 'cuda:0'
+enable_cudnn_benchmark = false
+tensorboard_dir = 'grp_runs'
+batch_size = 512
+save_every = 2000
+val_steps = 400
+
+[grp.dataset]
+train_globs = ['data/**/*.json.gz']
+val_globs = ['data/**/*.json.gz']
+file_index = 'grp_file_index.pth'
+file_batch_size = 50
+
+[grp.optim]
+lr = 1e-5
