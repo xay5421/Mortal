@@ -324,7 +324,7 @@ def train():
                     mortal.train()
                     dqn.train()
 
-                    avg_pt = stat.avg_pt(pts) # display using configured pts
+                    avg_pt = stat.avg_pt([int(p) for p in pts]) # display using configured pts
                     better = avg_pt >= best_perf['avg_pt'] and stat.avg_rank <= best_perf['avg_rank']
                     if better:
                         past_best = best_perf.copy()
