@@ -29,7 +29,7 @@ python -c "import torch; print(torch.zeros(1).cuda())"
 ## 训练流程概览
 
 ```
-1. 准备权重  →  2. 下载数据  →  3. 训练 GRP  →  4. 训练 Mortal  →  5. 评估  →  6. 部署
+1. 准备权重  →  2. 下载数据  →  3. 训练 GRP  →  4. 离线训练 Mortal  →  5. 自对弈 RL (可选)  →  6. 评估  →  7. 部署
 ```
 
 ## 1. 准备预训练权重
@@ -165,7 +165,113 @@ pts = [10.5, 3.5, 0.0, -14.0]
 pts = [6.0, 4.0, 2.0, 0.0]
 ```
 
-## 5. 评估
+## 5. 自对弈在线 RL（可选，进阶）
+
+离线训练是从固定的人类牌谱学习。自对弈（online RL）让模型自己打牌产生训练数据，不断迭代提升——类似 AlphaZero 的思路。
+
+### 架构
+
+```
+┌─────────────┐     TCP :5000     ┌─────────────┐     TCP :5000     ┌─────────────┐
+│  client.py  │ ←── get_param ──→ │  server.py  │ ←── drain ──────→ │  train.py   │
+│  (对弈器)   │ ──→ submit_replay │  (中继站)   │ ←── submit_param  │  (训练器)   │
+│             │                   │             │                   │ online=true │
+│ 1v3 自对弈  │                   │ buffer/     │                   │ DQN 训练    │
+│ 产生牌谱    │                   │ drain/      │                   │ 消费牌谱    │
+└─────────────┘                   └─────────────┘                   └─────────────┘
+```
+
+- **server.py**：中继服务器，管理参数分发和牌谱缓冲
+- **client.py**：对弈器，用最新权重跑 1v3 自对弈（trainee vs baseline），产生牌谱
+- **train.py** (`online=true`)：训练器，消费牌谱做 DQN 更新，把新权重推回 server
+
+### 一键启动
+
+```bash
+cd mortal
+
+# 1. 准备配置（首次使用复制模板）
+cp config.selfplay.toml config.toml
+# 按需修改 pts（顺位分）、device 等
+
+# 2. 确保 mortal.pth / baseline.pth / grp.pth 存在
+python setup_training.py
+
+# 3. 一键启动（server + trainer + client）
+python self_play.py
+```
+
+### 更多用法
+
+```bash
+# 指定配置文件
+MORTAL_CFG=config.selfplay.toml python self_play.py
+
+# Dry-run：只检查配置，不启动
+python self_play.py --dry-run
+
+# 多 client 并行（有多 GPU 时加速数据生产）
+python self_play.py --num-clients 2
+
+# 单独启动各组件（适合多机分布式）
+python self_play.py --server-only         # 机器 A
+python self_play.py --client-only         # 机器 B（可多开）
+python train.py                           # 机器 A（需另开终端）
+```
+
+### 关键参数
+
+| 参数 | 说明 | 建议值 |
+|------|------|--------|
+| `train_play.default.games` | 每轮自对弈局数 | 400~800 |
+| `train_play.default.boltzmann_epsilon` | 探索率 | 0.005~0.01 |
+| `train_play.default.boltzmann_temp` | 探索温度 | 0.05 |
+| `online.server.capacity` | buffer 容量 | 800 |
+| `freeze_bn.mortal` | 冻结 BN | online 必须 `true` |
+| `optim.scheduler.peak` | 学习率 | 1e-5（比离线小） |
+
+### 工作流程
+
+1. trainer 启动后把当前模型参数推送给 server
+2. client 从 server 拉取最新权重
+3. client 用权重跑 1v3 对弈（trainee vs baseline），有小概率随机探索
+4. client 把产生的牌谱提交给 server 的 buffer
+5. trainer 从 server drain 牌谱，做一步训练更新
+6. trainer 把更新后的权重推回 server
+7. 循环 2~6
+
+每 `test_every` 步，trainer 会自动跑一次 1v3 评估，如果是历史最好成绩会保存到 `best.pth`。
+
+### 监控
+
+```bash
+# TensorBoard
+tensorboard --logdir runs --bind_all
+
+# 日志
+tail -f self_play_logs/self_play_*.log
+```
+
+### 硬件要求
+
+自对弈需要 GPU 同时做推理（client）和训练（trainer）：
+- **最低**：1 张 GPU，分时共享（慢但可行）
+- **建议**：2+ 张 GPU，1 个 trainer + 多个 client 并行
+- **多机**：server 监听 0.0.0.0，client 可以在其他机器上连接
+
+### 离线 vs 自对弈
+
+| | 离线训练 (`online=false`) | 自对弈 (`online=true`) |
+|---|---|---|
+| 数据来源 | 天凤人类牌谱 | 模型自己打牌产生 |
+| CQL 正则化 | 有（防过估计） | 无（数据是当前策略） |
+| BN | 可不冻结 | 必须冻结 |
+| 学习率 | 1e-5 ~ 3e-5 | 5e-6 ~ 1e-5 |
+| 适合 | 有大量牌谱时 | 离线训练收敛后进一步提升 |
+
+建议先用离线训练打底，再切换到自对弈微调。
+
+## 6. 评估
 
 ```bash
 # 1v3 自对弈：训练后的模型 vs baseline
@@ -176,7 +282,7 @@ python one_vs_three.py
 - avg_rank < 2.50 → 比 baseline 强
 - avg_rank < 2.45 → 明显更强
 
-## 6. 部署到 majsoul-bot
+## 7. 部署到 majsoul-bot
 
 训练好的权重直接复制替换即可：
 

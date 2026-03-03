@@ -1,0 +1,171 @@
+# 自对弈在线 RL 训练配置
+# 基于 config.train.toml，切换为 online = true
+# 用法: MORTAL_CFG=config.selfplay.toml python self_play.py
+
+[control]
+version = 4
+online = true                   # ← 在线自对弈模式
+
+state_file = 'mortal.pth'
+best_state_file = 'best.pth'
+tensorboard_dir = 'runs'
+
+device = 'cuda:0'
+enable_cudnn_benchmark = true
+enable_amp = true
+enable_compile = false          # online 模式建议关闭（train.py 子进程重启时编译耗时）
+
+batch_size = 64
+opt_step_every = 8              # 等效 batch = 512
+
+save_every = 400
+test_every = 20000
+submit_every = 400              # 每 400 步把最新权重推给 server
+
+# ─── 对弈器配置 ───
+# client.py 用这些参数做 1v3 自对弈产生训练数据
+[train_play.default]
+games = 400                     # 每轮 400 局（100 seed × 4 位置）
+log_dir = 'train_play_logs'
+boltzmann_epsilon = 0.005       # 0.5% 探索率（随机出牌）
+boltzmann_temp = 0.05           # 探索温度
+top_p = 1.0                     # top-p 采样（1.0 = 不限）
+repeats = 1                     # 同 seed 重复次数
+
+[test_play]
+games = 1000                    # 评估 1000 局
+log_dir = 'test_play_logs'
+
+# ─── 数据集（online 模式不直接使用，但 dataloader 仍需要字段存在） ───
+[dataset]
+globs = ['data/**/*.json.gz']
+file_index = 'file_index.pth'
+file_batch_size = 15
+reserve_ratio = 0.0
+num_workers = 0                 # online 模式数据来自 drain，不用多 worker
+player_names_files = []
+num_epochs = 1
+enable_augmentation = false
+augmented_first = false
+
+# ─── 环境 ───
+[env]
+gamma = 1
+# 按你打的段位调整：
+# 金之间四人南: [5.5, 1.5, 0.0, -7.0]
+# 玉之间四人南: [7.5, 2.5, 0.0, -10.0]
+# 王座之间四人南: [10.5, 3.5, 0.0, -14.0]
+pts = [5.5, 1.5, 0.0, -7.0]
+
+# ─── 模型结构（必须与 mortal.pth 权重匹配） ───
+[resnet]
+conv_channels = 256
+num_blocks = 54
+
+# ─── CQL ───
+[cql]
+min_q_weight = 5                # online 模式下 CQL loss 不参与（代码里跳过了）
+
+# ─── 辅助损失 ───
+[aux]
+next_rank_weight = 0.2
+
+# ─── BatchNorm ───
+[freeze_bn]
+mortal = true                   # ⚠️ online 训练必须冻结 BN，否则小 batch 下统计不稳定
+
+# ─── 优化器 ───
+[optim]
+eps = 1e-8
+betas = [0.9, 0.999]
+weight_decay = 0.1
+max_grad_norm = 1.0
+
+[optim.scheduler]
+peak = 1e-5                     # online 微调用更小的学习率
+final = 5e-6
+warm_up_steps = 100
+max_steps = 100000
+
+# ─── Baseline（对弈对手 + 测试对比） ───
+[baseline.train]
+device = 'cuda:0'
+enable_compile = false
+state_file = 'baseline.pth'
+
+[baseline.test]
+device = 'cuda:0'
+enable_compile = false
+state_file = 'baseline.pth'
+
+# ─── Online 服务器 ───
+[online]
+history_window = 50
+enable_compile = false
+
+[online.remote]
+host = '127.0.0.1'
+port = 5000
+
+[online.server]
+buffer_dir = 'buffer'
+drain_dir = 'drain'
+sample_reuse_rate = 0
+sample_reuse_threshold = 0
+capacity = 800                  # buffer 容量，满了 client 会等待
+force_sequential = false        # false = 异步（快），true = 严格同步（稳）
+
+# ─── 1v3 评估 ───
+[1v3]
+seed_key = -1
+games_per_iter = 500
+iters = 100
+log_dir = '1v3_logs'
+
+[1v3.challenger]
+device = 'cuda:0'
+name = 'mortal'
+state_file = 'mortal.pth'
+stochastic_latent = false
+enable_compile = false
+enable_amp = true
+enable_rule_based_agari_guard = true
+
+[1v3.champion]
+device = 'cuda:0'
+name = 'baseline'
+state_file = 'baseline.pth'
+stochastic_latent = false
+enable_compile = false
+enable_amp = true
+enable_rule_based_agari_guard = true
+
+[1v3.akochan]
+enabled = false
+dir = ''
+tactics = ''
+
+# ─── GRP ───
+[grp]
+state_file = 'grp.pth'
+
+[grp.network]
+hidden_size = 64
+num_layers = 2
+
+[grp.control]
+device = 'cuda:0'
+enable_cudnn_benchmark = false
+tensorboard_dir = 'grp_runs'
+batch_size = 512
+save_every = 2000
+val_steps = 400
+
+[grp.dataset]
+train_globs = ['data/**/*.json.gz']
+val_globs = ['data/**/*.json.gz']
+file_index = 'grp_file_index.pth'
+file_batch_size = 50
+
+[grp.optim]
+lr = 1e-5
