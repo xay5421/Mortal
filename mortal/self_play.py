@@ -357,6 +357,13 @@ def main():
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
+    # ── 确保所需目录存在 ──
+    mortal_dir = os.path.dirname(os.path.abspath(__file__))
+    for d in ['runs', 'test_play_logs', 'train_play_logs', 'self_play_logs',
+              '1v3_logs', 'grp_runs', 'buffer', 'drain']:
+        os.makedirs(os.path.join(mortal_dir, d), exist_ok=True)
+    logger.info(f'工作目录: {mortal_dir}')
+
     try:
         # ── 启动 server ──
         if not args.client_only:
@@ -401,13 +408,26 @@ def main():
         logger.info('')
 
         # 等任一进程退出
+        trainer_restarts = 0
+        max_trainer_restarts = 5
         while True:
             name, code = pm.wait_any()
-            if code == 0 and name == 'trainer':
-                # train.py online 模式在 test_play 后会 sys.exit(0)
-                # 然后 main() 自动重启子进程，但我们这里也模拟这个行为
-                logger.info(f'[{name}] 正常退出 (test_play 后自动重启)')
+            if name == 'trainer':
+                if code == 0:
+                    # train.py online 模式在 test_play 后会 sys.exit(0)
+                    logger.info(f'[trainer] 正常退出 (test_play 完成，自动重启)')
+                    trainer_restarts = 0  # 正常退出重置计数
+                else:
+                    trainer_restarts += 1
+                    logger.warning(f'[trainer] 异常退出 (code={code})，第 {trainer_restarts}/{max_trainer_restarts} 次重启')
+                    if trainer_restarts > max_trainer_restarts:
+                        logger.error(f'[trainer] 连续异常退出超过 {max_trainer_restarts} 次，停止')
+                        pm.shutdown()
+                        sys.exit(1)
                 time.sleep(3)
+                # 重新确保目录存在（防止被清理）
+                for d in ['runs', 'test_play_logs', 'train_play_logs']:
+                    os.makedirs(os.path.join(mortal_dir, d), exist_ok=True)
                 pm.start('trainer', [python, 'train.py'], env=env_base, prefix_color='green')
             else:
                 logger.error(f'[{name}] 意外退出 (code={code})')
